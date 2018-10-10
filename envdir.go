@@ -79,7 +79,7 @@ func loadEnv(env environment, directory string) {
 
 		// Ensure file isn't empty
 		if file.Size() == 0 {
-			delete(env, fileName)
+			env[fileName] = ""
 			continue
 		}
 
