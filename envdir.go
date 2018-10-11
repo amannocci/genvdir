@@ -23,7 +23,7 @@ type environment map[string]string
 func main() {
 	// Register main command in cobra
 	var main = &cobra.Command{
-		Use:                "envdir dir prog...",
+		Use:                "genvdir dir prog...",
 		Args:               cobra.MinimumNArgs(2),
 		DisableFlagParsing: true,
 		Run: func(cmd *cobra.Command, args []string) {
