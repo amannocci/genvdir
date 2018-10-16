@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 )
 
 const exitCodeUnsuccessful = 111
+const exitCodeFailed = -1
 
 var envNameRegex = regexp.MustCompile(`^[a-zA-Z_]+[a-zA-Z0-9_]*$`)
 
@@ -27,9 +27,10 @@ func main() {
 		Args:               cobra.MinimumNArgs(2),
 		DisableFlagParsing: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			env := make(environment)
+			env    := make(environment)
 			loadEnv(env, args[0])
-			runCommand(args[1], args[2:], env.toArray())
+			binary := whichCmd(args[1], env)
+			runCommand(binary, args[1:], env.toArray())
 		},
 	}
 	main.Execute()
@@ -145,24 +146,28 @@ func trim(s string) string {
 	return s
 }
 
+func whichCmd(
+	name string,
+	envs environment,
+) string {
+	if paths := envs["PATH"] ; len(paths) > 0 {
+		for _, path := range strings.Split(paths, ":") {
+			binary := fmt.Sprintf("%s/%s", path, name)
+			if _, err := os.Stat(binary); ! os.IsNotExist(err) {
+				return binary
+			}
+		}
+	}
+	return name
+}
+
 func runCommand(
 	name string,
 	args []string,
 	envs []string,
 ) {
-	command := exec.Command(name, args...)
-	command.Stdin = os.Stdin
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	command.Env = envs
-	if err := command.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			waitStatus := exitError.Sys().(syscall.WaitStatus)
-			os.Exit(waitStatus.ExitStatus())
-		} else {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCodeUnsuccessful)
-		}
+	if err := syscall.Exec(name, args, envs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+		os.Exit(exitCodeFailed)
 	}
-	os.Exit(0)
 }
