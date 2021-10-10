@@ -13,27 +13,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const exitCodeUnsuccessful = 111
-const exitCodeFailed = -1
+const (
+	exitCodeUnsuccessful = 111
+	exitCodeFailed       = -1
+)
 
 var envNameRegex = regexp.MustCompile(`^[a-zA-Z_]+[a-zA-Z0-9_]*$`)
 
 type environment map[string]string
 
 func main() {
-	// Register main command in cobra
-	var main = &cobra.Command{
+	// Register root command in cobra
+	var rootCmd = &cobra.Command{
 		Use:                "genvdir dir prog...",
 		Args:               cobra.MinimumNArgs(2),
 		DisableFlagParsing: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			env := make(environment)
-			loadEnv(env, args[0])
+			env.loadEnv()
+			if err := env.loadEnvDir(args[0]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(exitCodeUnsuccessful)
+			}
+
 			binary := whichCmd(args[1], env)
-			runCommand(binary, args[1:], env.toArray())
+			if err := runCommand(binary, args[1:], env.toArray()); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(exitCodeFailed)
+			}
 		},
 	}
-	main.Execute()
+	rootCmd.Execute()
 }
 
 func (env environment) toArray() []string {
@@ -46,7 +56,7 @@ func (env environment) toArray() []string {
 	return result
 }
 
-func (env environment) loadCurrent() {
+func (env environment) loadEnv() {
 	for _, pair := range os.Environ() {
 		assoc := strings.SplitN(pair, "=", 2)
 		key := strings.Join(assoc[:1], "")
@@ -55,14 +65,11 @@ func (env environment) loadCurrent() {
 	}
 }
 
-func loadEnv(env environment, directory string) {
-	env.loadCurrent()
-
+func (env environment) loadEnvDir(directory string) error {
 	// Iterate over each file in directory
 	contents, err := ioutil.ReadDir(directory)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(exitCodeUnsuccessful)
+		return err
 	}
 	for _, file := range contents {
 		// Skip directory
@@ -88,20 +95,16 @@ func loadEnv(env environment, directory string) {
 
 		// Handle symlink
 		if file.Mode()&os.ModeSymlink != 0 {
-			fileLocation, err = os.Readlink(fileLocation)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Cannot read symlink: \"%s\"\n", fileLocation)
-				os.Exit(exitCodeUnsuccessful)
+			if fileLocation, err = os.Readlink(fileLocation); err != nil {
+				return fmt.Errorf("Error: Cannot read symlink: \"%s\"\n", fileLocation)
 			}
 
 			if !filepath.IsAbs(fileLocation) {
 				fileLocation = path.Join(directory, fileLocation)
 			}
 
-			file, err = os.Stat(fileLocation)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: Failed to call os.Stat of %s\n", fileLocation)
-				os.Exit(exitCodeUnsuccessful)
+			if file, err = os.Stat(fileLocation); err != nil {
+				return fmt.Errorf("Error: Failed to call os.Stat of %s\n", fileLocation)
 			}
 
 			if file.IsDir() {
@@ -112,15 +115,13 @@ func loadEnv(env environment, directory string) {
 		// Read content
 		fileData, err := ioutil.ReadFile(fileLocation)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(exitCodeUnsuccessful)
+			return err
 		}
 
 		// Sanitize
 		fileString := string(fileData)
 		if containsNullChar(fileString) {
-			fmt.Fprintf(os.Stderr, "Error: %s contains a null character\n", fileName)
-			os.Exit(exitCodeUnsuccessful)
+			return fmt.Errorf("Error: %s contains a null character\n", fileName)
 		}
 		fileString = trim(fileString)
 		if len(fileString) == 0 {
@@ -129,6 +130,7 @@ func loadEnv(env environment, directory string) {
 		}
 		env[fileName] = fileString
 	}
+	return nil
 }
 
 func containsNullChar(s string) bool {
@@ -165,9 +167,9 @@ func runCommand(
 	name string,
 	args []string,
 	envs []string,
-) {
+) error {
 	if err := syscall.Exec(name, args, envs); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
-		os.Exit(exitCodeFailed)
+		return fmt.Errorf("Error: %s\n", err.Error())
 	}
+	return nil
 }
