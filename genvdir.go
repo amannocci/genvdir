@@ -27,7 +27,7 @@ func main() {
 		Args:               cobra.MinimumNArgs(2),
 		DisableFlagParsing: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			env    := make(environment)
+			env := make(environment)
 			loadEnv(env, args[0])
 			binary := whichCmd(args[1], env)
 			runCommand(binary, args[1:], env.toArray())
@@ -150,10 +150,10 @@ func whichCmd(
 	name string,
 	envs environment,
 ) string {
-	if paths := envs["PATH"] ; len(paths) > 0 {
+	if paths := envs["PATH"]; len(paths) > 0 {
 		for _, path := range strings.Split(paths, ":") {
 			binary := fmt.Sprintf("%s/%s", path, name)
-			if _, err := os.Stat(binary); ! os.IsNotExist(err) {
+			if _, err := os.Stat(binary); !os.IsNotExist(err) {
 				return binary
 			}
 		}
